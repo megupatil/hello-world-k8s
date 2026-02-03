@@ -3,6 +3,9 @@ name: Deploy to Kubernetes
 on:
   push:
     branches: [ "main" ]
+  
+  # Add this section below:
+  workflow_dispatch:
 
 jobs:
   build-and-deploy:
