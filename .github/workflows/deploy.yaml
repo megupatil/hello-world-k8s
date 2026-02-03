@@ -3,66 +3,70 @@ name: Deploy to Kubernetes
 on:
   push:
     branches: [ "main" ]
-  workflow_dispatch: # Allows manual trigger
+  workflow_dispatch:
 
 jobs:
-  build-and-deploy:
+  deploy:
     runs-on: ubuntu-latest
     steps:
     # 1. Checkout Code
     - name: Checkout code
       uses: actions/checkout@v3
 
-    # 2. Login to Docker Hub
+    # 2. Docker Login
     - name: Log in to Docker Hub
       uses: docker/login-action@v2
       with:
         username: ${{ secrets.DOCKER_USERNAME }}
         password: ${{ secrets.DOCKER_PASSWORD }}
 
-    # 3. Prepare Variables (Fixes casing/whitespace issues)
-    - name: Prepare Docker Image Name
-      id: meta
+    # 3. Build & Push Image
+    - name: Build and Push Docker Image
+      id: build-push
       run: |
-        # Convert username to lowercase to satisfy Docker requirements
-        LOWERCASE_USER=$(echo "${{ secrets.DOCKER_USERNAME }}" | tr '[:upper:]' '[:lower:]' | xargs)
-        IMAGE_NAME="$LOWERCASE_USER/hello-world-k8s"
-        echo "image_name=$IMAGE_NAME" >> $GITHUB_OUTPUT
-        echo "::notice ::Building image: $IMAGE_NAME:latest"
+        # Force lowercase to avoid Docker tag errors
+        USER_LOWER=$(echo "${{ secrets.DOCKER_USERNAME }}" | tr '[:upper:]' '[:lower:]' | xargs)
+        IMAGE="$USER_LOWER/hello-world-k8s"
+        
+        docker build -t $IMAGE:latest .
+        docker push $IMAGE:latest
+        
+        echo "image=$IMAGE" >> $GITHUB_OUTPUT
 
-    # 4. Build & Push Image
-    - name: Build and Push Docker image
-      uses: docker/build-push-action@v4
-      with:
-        context: .
-        push: true
-        tags: megupatil/hello-world-k8s:latest
-
-    # 5. Setup Kubectl
+    # 4. Setup Kubectl
     - name: Set up kubectl
       uses: azure/setup-kubectl@v3
 
-    # 6. Auth with Cluster
-    - name: Set Kubernetes Context
-      uses: azure/k8s-set-context@v3
-      with:
-        method: kubeconfig
-        kubeconfig: ${{ secrets.KUBE_CONFIG }}
+    # 5. Authenticate (NO AWS - Pure Kubernetes Token)
+    # We build the config file manually using your secrets
+    - name: Create Kubeconfig
+      run: |
+        # 1. Set Cluster URL
+        kubectl config set-cluster my-cluster --server="${{ secrets.K8S_SERVER }}"
+        
+        # 2. Set CA Certificate
+        echo "${{ secrets.K8S_CA }}" > ca.crt
+        kubectl config set-cluster my-cluster --certificate-authority=ca.crt
+        
+        # 3. Set Service Account Token
+        kubectl config set-credentials github-deployer --token="${{ secrets.K8S_TOKEN }}"
+        
+        # 4. Create Context
+        kubectl config set-context my-context --cluster=my-cluster --user=github-deployer
+        kubectl config use-context my-context
 
-    # 7. Deploy
+    # 6. Deploy
     - name: Deploy to Cluster
       run: |
-        # Use the prepared lowercase image name for replacement
-        IMAGE_NAME="${{ steps.meta.outputs.image_name }}"
+        IMAGE_NAME="${{ steps.build-push.outputs.image }}"
         
-        # Replace the placeholder in deployment.yaml
-        # We look for the literal string '${{ secrets.DOCKER_USERNAME }}' or similar pattern if you used my previous file.
-        # This sed command replaces the entire image line to be safe:
+        # Inject the image name
         sed -i "s|image: .*|image: docker.io/$IMAGE_NAME:latest|g" k8s/deployment.yaml
         
-        # Apply manifests
+        # Test connection before applying (This will print the server version if successful)
+        kubectl version --short
+        
+        # Apply
         kubectl apply -f k8s/deployment.yaml
         kubectl apply -f k8s/service.yaml
-        
-        # Force restart to pull the new image
         kubectl rollout restart deployment/hello-world-app
