@@ -3,9 +3,7 @@ name: Deploy to Kubernetes
 on:
   push:
     branches: [ "main" ]
-  
-  # Add this section below:
-  workflow_dispatch:
+  workflow_dispatch: # Allows manual trigger
 
 jobs:
   build-and-deploy:
@@ -22,31 +20,49 @@ jobs:
         username: ${{ secrets.DOCKER_USERNAME }}
         password: ${{ secrets.DOCKER_PASSWORD }}
 
-    # 3. Build & Push Image
+    # 3. Prepare Variables (Fixes casing/whitespace issues)
+    - name: Prepare Docker Image Name
+      id: meta
+      run: |
+        # Convert username to lowercase to satisfy Docker requirements
+        LOWERCASE_USER=$(echo "${{ secrets.DOCKER_USERNAME }}" | tr '[:upper:]' '[:lower:]' | xargs)
+        IMAGE_NAME="$LOWERCASE_USER/hello-world-k8s"
+        echo "image_name=$IMAGE_NAME" >> $GITHUB_OUTPUT
+        echo "::notice ::Building image: $IMAGE_NAME:latest"
+
+    # 4. Build & Push Image
     - name: Build and Push Docker image
       uses: docker/build-push-action@v4
       with:
         context: .
         push: true
-        tags: ${{ secrets.DOCKER_USERNAME }}/hello-world-k8s:latest
+        tags: ${{ steps.meta.outputs.image_name }}:latest
 
-    # 4. Setup Kubectl
+    # 5. Setup Kubectl
     - name: Set up kubectl
       uses: azure/setup-kubectl@v3
 
-    # 5. Auth with Cluster
+    # 6. Auth with Cluster
     - name: Set Kubernetes Context
       uses: azure/k8s-set-context@v3
       with:
         method: kubeconfig
         kubeconfig: ${{ secrets.KUBE_CONFIG }}
 
-    # 6. Deploy
+    # 7. Deploy
     - name: Deploy to Cluster
       run: |
-        # Replace the secret variable in the deployment.yaml with the actual username
-        sed -i "s|\${{ secrets.DOCKER_USERNAME }}|${{ secrets.DOCKER_USERNAME }}|g" k8s/deployment.yaml
-
+        # Use the prepared lowercase image name for replacement
+        IMAGE_NAME="${{ steps.meta.outputs.image_name }}"
+        
+        # Replace the placeholder in deployment.yaml
+        # We look for the literal string '${{ secrets.DOCKER_USERNAME }}' or similar pattern if you used my previous file.
+        # This sed command replaces the entire image line to be safe:
+        sed -i "s|image: .*|image: docker.io/$IMAGE_NAME:latest|g" k8s/deployment.yaml
+        
+        # Apply manifests
         kubectl apply -f k8s/deployment.yaml
         kubectl apply -f k8s/service.yaml
+        
+        # Force restart to pull the new image
         kubectl rollout restart deployment/hello-world-app
