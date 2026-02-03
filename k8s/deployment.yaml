@@ -1,0 +1,20 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hello-world-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: hello-world
+  template:
+    metadata:
+      labels:
+        app: hello-world
+    spec:
+      containers:
+      - name: hello-world
+        # IMPORTANT: Matches the image built in the pipeline step later
+        image: docker.io/${{ secrets.DOCKER_USERNAME }}/hello-world-k8s:latest 
+        ports:
+        - containerPort: 5000
