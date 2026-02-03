@@ -36,7 +36,7 @@ jobs:
       with:
         context: .
         push: true
-        tags: ${{ steps.meta.outputs.image_name }}:latest
+        tags: megupatil/hello-world-k8s:latest:latest
 
     # 5. Setup Kubectl
     - name: Set up kubectl
