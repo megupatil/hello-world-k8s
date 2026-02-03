@@ -20,25 +20,21 @@ jobs:
         username: ${{ secrets.DOCKER_USERNAME }}
         password: ${{ secrets.DOCKER_PASSWORD }}
 
-    # 3. Build & Push Image
-    - name: Build and Push Docker Image
+    # 3. Build & Push Image (Hardcoded Tag)
+    - name: Build and Push Docker image
+      uses: docker/build-push-action@v4
       id: build-push
-      run: |
-        # Force lowercase to avoid Docker tag errors
-        USER_LOWER=$(echo "${{ secrets.DOCKER_USERNAME }}" | tr '[:upper:]' '[:lower:]' | xargs)
-        IMAGE="$USER_LOWER/hello-world-k8s"
-        
-        docker build -t $IMAGE:latest .
-        docker push $IMAGE:latest
-        
-        echo "image=$IMAGE" >> $GITHUB_OUTPUT
+      with:
+        context: .
+        push: true
+        # Here is the manual tag you requested:
+        tags: megupatil/hello-world-k8s:latest
 
     # 4. Setup Kubectl
     - name: Set up kubectl
       uses: azure/setup-kubectl@v3
 
-    # 5. Authenticate (NO AWS - Pure Kubernetes Token)
-    # We build the config file manually using your secrets
+    # 5. Authenticate (Service Account Token Method)
     - name: Create Kubeconfig
       run: |
         # 1. Set Cluster URL
@@ -58,15 +54,16 @@ jobs:
     # 6. Deploy
     - name: Deploy to Cluster
       run: |
-        IMAGE_NAME="${{ steps.build-push.outputs.image }}"
+        # Inject the manual image name into deployment.yaml
+        # We explicitly use 'megupatil' here to match the build step
+        sed -i "s|image: .*|image: docker.io/megupatil/hello-world-k8s:latest|g" k8s/deployment.yaml
         
-        # Inject the image name
-        sed -i "s|image: .*|image: docker.io/$IMAGE_NAME:latest|g" k8s/deployment.yaml
-        
-        # Test connection before applying (This will print the server version if successful)
+        # Test connection
         kubectl version --short
         
-        # Apply
+        # Apply Manifests
         kubectl apply -f k8s/deployment.yaml
         kubectl apply -f k8s/service.yaml
+        
+        # Restart Deployment
         kubectl rollout restart deployment/hello-world-app
