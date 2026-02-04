@@ -2,7 +2,7 @@ name: Harness Triggered Pipeline
 
 on:
   repository_dispatch:
-    types: [harness-deploy] # This matches the event_type we send from Harness
+    types: [webhook-event]  # <--- CHANGED: Matches your JSON "event_type"
 
 jobs:
   build:
@@ -14,4 +14,7 @@ jobs:
       - name: Run Script
         run: |
           echo "Triggered by Harness!"
-          echo "Custom Payload Data: ${{ github.event.client_payload.custom_data }}"
+          
+          # accessing the new JSON fields
+          echo "Message: ${{ github.event.client_payload.message }}"
+          echo "Environment: ${{ github.event.client_payload.env }}"
