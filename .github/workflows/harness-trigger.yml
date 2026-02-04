@@ -1,0 +1,17 @@
+name: Harness Triggered Pipeline
+
+on:
+  repository_dispatch:
+    types: [harness-deploy] # This matches the event_type we send from Harness
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Run Script
+        run: |
+          echo "Triggered by Harness!"
+          echo "Custom Payload Data: ${{ github.event.client_payload.custom_data }}"
